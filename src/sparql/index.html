@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- Global site tag (gtag.js) - Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=UA-45357765-1"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'UA-45357765-1');
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+  <title>周辺情報リスト</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@mdi/font@4.x/css/materialdesignicons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+</head>
+<body>
+  <div id="app">
+    <v-app>
+      <v-main>
+        <v-container class="pt-10 pb-5">
+          <h1 class="text-center py-5">周辺情報</h1>
+          <v-divider></v-divider>
+          <l-map style="height: 350px;" :bounds="bounds">
+            <l-tile-layer :url="url"></l-tile-layer>
+            <l-marker v-for="place in places" :lat-lng="{lat: place.coord.latitude, lon: place.coord.longitude}">
+            <l-popup>
+              <a :href="place.url.value" target="_blank" rel="noopener noreferrer">{{ place.label.value }}</a>
+            </l-popup>
+            </l-marker>
+          </l-map>
+          <v-simple-table>
+            <template v-slot:default>
+              <thead>
+                <tr class="text-center">
+                  <th>Label</th>
+                  <th>Address</th>
+                  <th>Geohash</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="place in places" :key="place.label.value">
+                  <td>
+                    <a :href="place.url.value" target="_blank" rel="noopener noreferrer">{{ place.label.value }}</a>
+                  </td>
+                  <td>
+                    <a :href="`http://uedayou.net/loa/${place.address.value}`" target="_blank" rel="noopener noreferrer">{{ place.address.value }}</a>
+                  </td>
+                  <td>
+                    <a :href="`http://geohash.org/${place.geohash.value}`" target="_blank" rel="noopener noreferrer">{{ place.geohash.value }}</a>
+                    <p class="caption">{{ place.coord.latitude.toFixed(8) }},{{ place.coord.longitude.toFixed(8) }}</p>
+                  </td>
+                </tr>
+              </tbody>
+            </template>
+          </v-simple-table>
+        </v-container>
+      </v-main>
+    </v-app>
+    <v-overlay :value="isLoading" style="z-index:999">
+      <v-progress-circular indeterminate size="64"></v-progress-circular>
+    </v-overlay>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/vue2-leaflet"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@alexpavlov/geohash-js"></script>
+  <script>
+    var API_URL = "https://uedayou.net/loa/nearby/sparql";
+    var QUERY = `
+prefix ic: <http://imi.go.jp/ns/core/rdf#>
+prefix schema: <http://schema.org/>
+prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+prefix geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+
+select distinct ?url ?label ?address ?loa ?geohash ?lat ?long where {
+?url rdfs:label ?label;
+     ic:住所 ?loa;
+     schema:address ?address;
+     schema:geo ?hashuri;
+     geo:lat ?lat;
+     geo:long ?long.
+  bind(substr(str(?hashuri), 20) as ?geohash)
+  filter( regex(?address, "東京都千代田区有楽町") )
+} limit 1000
+`;
+
+    Vue.component('l-map', window.Vue2Leaflet.LMap);
+    Vue.component('l-tile-layer', window.Vue2Leaflet.LTileLayer);
+    Vue.component('l-marker', window.Vue2Leaflet.LMarker);
+    Vue.component('l-popup', window.Vue2Leaflet.LPopup);
+    new Vue({
+      el: '#app',
+      vuetify: new Vuetify(),
+      data() {
+        return {
+          places: [],
+          query: QUERY,
+          isLoading: false,
+          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          bounds: null,
+        }
+      },
+      mounted() {
+        var self = this;
+        self.isLoading = true;
+        axios.get(
+          API_URL+"?query="+encodeURIComponent(QUERY)
+        ).then(function(response) {
+          self.places = response.data.results.bindings.map(function(place) {
+            place.coord = geohash.decode(place.geohash.value);
+            self.setBounds(place.coord.latitude, place.coord.longitude);
+            return place;
+          });
+        }).catch(function(error) {
+          console.log(error);
+        }).finally(function() {
+          self.isLoading = false;
+        });
+      },
+      methods: {
+        setBounds: function(lat, long) {
+          if (!this.bounds) this.bounds = [[lat, long],[lat, long]];
+          if (this.bounds[1][0] > lat) this.bounds[1][0] = lat;
+          if (this.bounds[0][0] < lat) this.bounds[0][0] = lat;
+          if (this.bounds[1][1] > long) this.bounds[1][1] = long;
+          if (this.bounds[0][1] < long) this.bounds[0][1] = long;
+        }
+      }
+    })
+  </script>
+</body>
+</html>
